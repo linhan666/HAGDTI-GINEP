@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+cache/
+checkpoints/
+logs/
+*.pt
+*.pth
+*.pkl
+*.bak
+*.bak2
+*.bak3
+*.bak*
+.env
+glm_review.py
+review_reports/
