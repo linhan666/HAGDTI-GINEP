@@ -57,3 +57,8 @@ class Config:
     graph_gin_dim = 32
     ligand_encoder_type = 'default'
     use_ligand_graph = True
+
+    hmcnf_hierarchy = [1, 2]
+    hmcnf_hidden_dim = 384
+    hmcnf_beta = 0.5
+    hiagm_node_dim = 128

@@ -3,7 +3,7 @@
   "source_commit": "7f4f08bdd44ffd6445e835a1859e9be8b08afbee",
   "extracted_on": "2026-10-14",
   "source_arm": "abl_ax3_gin_ep",
-  "scope": "Complete GIN-EP architecture only; tm7, flat fusion, MLP. No training scheduler, data or weights.",
+  "scope": "Complete GIN-EP architecture only; tm7, flat fusion; selectable mlp/hmcnf/hiagm/chmcnn/cond_softmax heads. No training scheduler, data or weights.",
   "source_files": {
     "config.py": "c00cfa3e82b26a686b857cd666740186622b397dc255daf694a74be2e60ad5e1",
     "model.py": "9d345a7c6b639a1ab82e1141e34f7846fb49b5823cb541196d1a8b3cac84a3eb",
@@ -16,20 +16,59 @@
     "run_ablation.py": "8ce63e7785c830633da3ba9ea84112ed591097ac72a6c38d55f9ce5ff4018768"
   },
   "validation": {
-    "offline_unittest_count": 2,
+    "offline_unittest_count": 4,
     "original_vs_extracted_state_dict_keys": 106,
     "initial_weights": "exact match with mock backbones",
     "strict_checkpoint_loading": "passed with mock backbone state_dict",
     "forward_tensors": "exact match with mock backbones",
-    "real_pretrained_weights_tested": false
+    "real_pretrained_weights_tested": false,
+    "all_head_parity": {
+      "mlp": {
+        "state_dict_keys": 106,
+        "initial_weights": "exact match",
+        "strict_checkpoint_loading": "passed",
+        "forward_tensors": "exact match"
+      },
+      "hmcnf": {
+        "state_dict_keys": 114,
+        "initial_weights": "exact match",
+        "strict_checkpoint_loading": "passed",
+        "forward_tensors": "exact match"
+      },
+      "hiagm": {
+        "state_dict_keys": 107,
+        "initial_weights": "exact match",
+        "strict_checkpoint_loading": "passed",
+        "forward_tensors": "exact match"
+      },
+      "chmcnn": {
+        "state_dict_keys": 106,
+        "initial_weights": "exact match",
+        "strict_checkpoint_loading": "passed",
+        "forward_tensors": "exact match"
+      },
+      "cond_softmax": {
+        "state_dict_keys": 106,
+        "initial_weights": "exact match",
+        "strict_checkpoint_loading": "passed",
+        "forward_tensors": "exact match"
+      }
+    }
   },
   "extraction": {
-    "model.py": "ESMC and shared encoders extracted; original graph branch only; TM7 fixed",
+    "model.py": "ESMC and shared encoders extracted; GIN-EP graph only; TM7 fixed; original five-head dispatch",
     "graph_deep_encoder.py": "GINEdgePEAtomEncoder, EP input and selected wrapper only",
     "ligand_graph.py": "Atom, bond and RWPE helpers only",
     "data.py": "Pharmacophore helper and dimensions only",
-    "heads.py": "MLPHead only",
+    "heads.py": "All five original classification heads, hierarchical labels, MCM/loss and unified probability conversion",
     "tensor_utils.py": "Original pad_by_batch helper",
     "esmc_tokenizer.py": "Unchanged source copy"
-  }
+  },
+  "classification_heads": [
+    "mlp",
+    "hmcnf",
+    "hiagm",
+    "chmcnn",
+    "cond_softmax"
+  ]
 }

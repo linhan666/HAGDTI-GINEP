@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from config import Config
 from data import PHARMACOPHORE_DIM, MOTIF_FEATURE_DIM
-from heads import MLPHead
+from heads import MLPHead, HMCNFHead, HiAGMTPHead, CHMCNNHead, CondSoftmaxHead
 from ligand_graph import ATOM_FEATURE_DIM
 from graph_deep_encoder import GraphDeepEncoder
 logger = logging.getLogger(__name__)
@@ -352,11 +352,11 @@ def collapse_attn_to_tm7(attn, n_tm=7, L_tm=None):
 
 
 class ClassAGPCRDTIModel(nn.Module):
-    """Complete original GIN-EP arm: ESMC/GPCR + wide ligand + graph attention + MLP."""
+    """Complete original GIN-EP arm: ESMC/GPCR + wide ligand + graph attention + selectable classification head."""
     def __init__(self, cfg):
         super().__init__()
-        if (cfg.graph_deep_type, cfg.head_type, cfg.fusion_mode, cfg.protein_token_source) != ("gin_ep", "mlp", "flat", "tm7"):
-            raise ValueError("Only the original gin_ep/mlp/flat/tm7 architecture is supported")
+        if (cfg.graph_deep_type, cfg.fusion_mode, cfg.protein_token_source) != ("gin_ep", "flat", "tm7"):
+            raise ValueError("Only the gin_ep/flat/tm7 backbone is supported")
         self.cfg = cfg
         fd = cfg.fusion_dim
         self.prot_enc = ProteinEncoder(cfg)
@@ -367,8 +367,38 @@ class ClassAGPCRDTIModel(nn.Module):
             nn.Linear(fd * 3, fd * 2), nn.GELU(), nn.Dropout(cfg.dropout),
             nn.Linear(fd * 2, fd), nn.GELU(), nn.Dropout(cfg.dropout),
         )
-        self.head = MLPHead(fd, cfg.num_classes, cfg.mlp_head_hidden_dim)
-        self.binary_head = nn.Linear(fd, 2) if cfg.use_binary_aux else None
+        if cfg.head_type == "mlp":
+            self.head = MLPHead(fd, cfg.num_classes, cfg.mlp_head_hidden_dim)
+        elif cfg.head_type == "hmcnf":
+            self.head = HMCNFHead(
+                input_dim   = fd,
+                hierarchy   = cfg.hmcnf_hierarchy,
+                beta        = cfg.hmcnf_beta,
+                hidden_dim  = cfg.hmcnf_hidden_dim,
+            )
+        elif cfg.head_type == "hiagm":
+            self.head = HiAGMTPHead(
+                input_dim = fd,
+                node_dim  = cfg.hiagm_node_dim,
+                device    = cfg.device,
+            )
+        elif cfg.head_type == "chmcnn":
+            self.head = CHMCNNHead(
+                input_dim  = fd,
+                hidden_dim = cfg.hmcnf_hidden_dim,
+            )
+        elif cfg.head_type == "cond_softmax":
+            self.head = CondSoftmaxHead(
+                input_dim  = fd,
+                hidden_dim = cfg.mlp_head_hidden_dim,
+                dropout    = cfg.dropout,
+            )
+        else:
+            raise ValueError(
+                f"未知 head_type: {cfg.head_type}，可选 mlp/hmcnf/hiagm/chmcnn/cond_softmax"
+            )
+
+        self.binary_head = nn.Linear(fd, 2) if (cfg.use_binary_aux and cfg.head_type == "mlp") else None
 
     def forward(self, batch):
         prot, _, tm_tokens, tm_masks = self.prot_enc(

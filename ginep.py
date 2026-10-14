@@ -1,6 +1,8 @@
 """Dedicated configuration and model factory for the original GIN-EP arm."""
 from config import Config
 
+HEAD_TYPES = ("mlp", "hmcnf", "hiagm", "chmcnn", "cond_softmax")
+
 
 class GINEPConfig(Config):
     experiment_name = "HAGDTI_GINEP"
@@ -35,8 +37,10 @@ def build_model(cfg=None):
         "use_ligand_graph", "ligand_encoder_type", "graph_deep_type",
         "graph_use_edge_attr", "graph_use_rw_pe", "graph_rw_pe_walk",
         "graph_rw_pe_dim", "graph_gin_dim", "graph_xattn_gated",
-        "fusion_mode", "protein_token_source", "head_type",
+        "fusion_mode", "protein_token_source",
     ):
         if getattr(cfg, name, None) != getattr(GINEPConfig, name):
             raise ValueError(f"GIN-EP architecture requires {name}={getattr(GINEPConfig, name)!r}")
+    if cfg.head_type not in HEAD_TYPES:
+        raise ValueError(f"Unsupported head_type: {cfg.head_type!r}; choose from {HEAD_TYPES}")
     return ClassAGPCRDTIModel(cfg)

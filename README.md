@@ -1,6 +1,6 @@
 # HAGDTI-GINEP
 
-独立整理的 **GIN-EP 完整模型架构**。来源为 `linhan666/GPCRDTI` 的 `abl_ax3_gin_ep` 实验：ESMC 蛋白分支、GPCR 先验、ChemBERTa/药效团配体分支、GINE + 键特征 + RW-PE 原子图分支、原子到 TM 的交叉注意力、flat fusion 和 MLP 三分类头。
+独立整理的 **GIN-EP 完整模型架构**。来源为 `linhan666/GPCRDTI` 的 `abl_ax3_gin_ep` 实验：ESMC 蛋白分支、GPCR 先验、ChemBERTa/药效团配体分支、GINE + 键特征 + RW-PE 原子图分支、原子到 TM 的交叉注意力、flat fusion，以及 MLP、HMCN-F、HiAGM-TP、C-HMCNN 和 conditional-softmax 五种可选分类头。
 
 本目录只提供该模型架构、必要特征函数和离线接口检查。完整实验调度、其他模型分支、数据、预训练权重和训练后检查点不在发布范围内。原项目源文件未修改。
 
@@ -22,13 +22,29 @@ flowchart LR
     P --> F[Concatenate 768 / fusion MLP 512 to 256]
     W --> F
     A --> F
-    F --> H[MLP 128 to 3]
-    F --> B[Auxiliary binary head 2]
+    F --> H[Selectable head: MLP / HMCN-F / HiAGM-TP / C-HMCNN / conditional-softmax]
+    F --> B[Auxiliary binary head 2: MLP only]
 ```
 
-固定 `graph_deep_type=gin_ep`、`graph_use_edge_attr=True`、`graph_use_rw_pe=True`、`protein_token_source=tm7`、`fusion_mode=flat`、`head_type=mlp`。蛋白“全序列”输入用于全局 CLS 表示；交叉注意力的蛋白 token 来源固定为七个跨膜片段。
+固定 `graph_deep_type=gin_ep`、`graph_use_edge_attr=True`、`graph_use_rw_pe=True`、`protein_token_source=tm7`、`fusion_mode=flat`。分类头默认 `mlp`，可切换为下表中的其他头。蛋白“全序列”输入用于全局 CLS 表示；交叉注意力的蛋白 token 来源固定为七个跨膜片段。
 
-标签顺序：`0=inactive`、`1=agonist`、`2=inhibitor`。二分类辅助头使用 `0=inactive`、`1=active`；推理三分类概率为 `softmax(logits)`。
+标签顺序：`0=inactive`、`1=agonist`、`2=inhibitor`。二分类辅助头使用 `0=inactive`、`1=active`；MLP 推理概率为 `softmax(logits)`；层级头和条件头请统一使用 `extract_3class_probs(output)`，不能直接对其 `logits` 使用三分类 softmax。
+
+## 可选分类头
+
+五种头共用同一 GIN-EP 编码与融合骨干；`cfg.head_type` 只切换预测头。各头实现、参数默认值和概率解释沿用原项目。
+
+| `head_type` | 分类头 | 原始输出语义 | 训练损失口径 |
+|---|---|---|---|
+| `mlp` | MLP | `[inactive, agonist, inhibitor]` 三分类 logits | 三分类交叉熵；可加独立 active/inactive 辅助交叉熵 |
+| `hmcnf` | HMCN-F | `[active, agonist, inhibitor]` 层级节点 logits，全局/局部流融合 | 层级标签 BCEWithLogits |
+| `hiagm` | HiAGM-TP | `[active, agonist, inhibitor]` 标签图节点 logits | 层级标签 BCEWithLogits |
+| `chmcnn` | C-HMCNN | 层级节点 logits，推理经 sigmoid 和 MCM 约束 | `chmcnn_mc_loss`；`chmcnn_mcm` 保证 parent 概率不小于 child |
+| `cond_softmax` | Conditional softmax | `active_logit [B]` 和 `cond_logits [B,2]` | active BCEWithLogits；active 样本上的 agonist/inhibitor 交叉熵 |
+
+HMCN-F 默认 `hierarchy=[1,2]`、`hidden_dim=384`、`beta=0.5`；HiAGM-TP 默认 `node_dim=128`；C-HMCNN 使用 `hmcnf_hidden_dim=384`；conditional-softmax 使用 `mlp_head_hidden_dim=128`。独立的 `binary_logits` 仅 MLP 且 `use_binary_aux=True` 时输出；其余头已有 active 节点或 active logit。
+
+层级标签按 `get_hier_labels(labels)` 转换为 `[active, agonist, inhibitor]`。统一概率始终按 `[inactive, agonist, inhibitor]` 返回；HMCN-F/HiAGM-TP 使用层级条件分解，C-HMCNN 先做 MCM 后分解，conditional-softmax 使用 `P(active) * P(subtype | active)`。本仓库提供头与必要函数，训练损失调度和原项目的完整训练流程仍由调用方实现。
 
 ## 文件
 
@@ -40,7 +56,7 @@ flowchart LR
 | `graph_deep_encoder.py` | 唯一图分支 GINE + bond + RW-PE |
 | `ligand_graph.py` | 原子 34 维、键 12 维和 RW-PE 20 维 |
 | `data.py` | 药效团特征和共享维度 |
-| `heads.py` | MLP 分类头及三分类概率转换 |
+| `heads.py` | 五种分类头、层级标签、C-HMCNN 约束/损失及统一三分类概率转换 |
 | `tensor_utils.py` | 按图编号还原 padded 原子 token |
 | `esmc_tokenizer.py` | 原项目 ESMC 分词器兼容层 |
 | `tests/test_architecture.py` | 模拟骨干的完整前向/反向与图边界检查 |
@@ -53,7 +69,7 @@ flowchart LR
 
 ```bash
 python -m pip install -r requirements.txt
-python -B -X utf8 run_ginep.py
+python -B -X utf8 run_ginep.py --head hmcnf
 python -B -X utf8 -m unittest discover -s tests -v
 ```
 
@@ -66,6 +82,7 @@ from ginep import GINEPConfig, build_model
 from heads import extract_3class_probs
 
 cfg = GINEPConfig()
+cfg.head_type = "hmcnf"  # mlp / hmcnf / hiagm / chmcnn / cond_softmax
 cfg.esmc_local_path = "/path/to/ESMC_300M"
 cfg.ligand_encoder = "/path/to/ChemBERTa-zinc-base-v1"
 model = build_model(cfg).eval()
@@ -78,8 +95,8 @@ model = build_model(cfg).eval()
 
 ## 验证与边界
 
-- 2026-10-14：两项离线测试通过；完整三分类/辅助二分类前向、注意力形状、概率归一化及各通路梯度均通过检查。
-- 与原始 `abl_ax3_gin_ep` 对比：模拟骨干下 106 个 `state_dict` 键及初始化参数完全一致，严格检查点加载通过，所有前向输出张量逐位一致。该检查不涉及真实预训练权重。
+- 2026-10-14：四项离线测试通过，覆盖全部五种分类头的前向、反向和概率归一化；完整三分类/辅助二分类前向、注意力形状、概率归一化及各通路梯度均通过检查。
+- 与原项目使用 GIN-EP 的五种头配置逐一对比：模拟骨干下 `state_dict` 键、初始化参数和所有前向输出张量均完全一致，严格检查点加载均通过。键数量分别为 MLP 106、HMCN-F 114、HiAGM-TP 107、C-HMCNN 106、conditional-softmax 106。该检查不涉及真实预训练权重，也未新增性能实验。
 - 原始数据行为保留：非法或空 SMILES 会生成占位图；缺失键属性或 RW-PE 会使用零值降级。正式推理前应校验输入，不能把占位图当作有效化学结构。
 - 训练模式的 BatchNorm 需要足够的节点样本；单原子单样本批次可能报错。推理应使用 `model.eval()`。
 - TM token mask 保留原始分词器口径；没有新增残基筛选或口袋结构推断。默认长度限制可能截断序列，GPCRdb 片段和 motif 特征需由调用者提供。

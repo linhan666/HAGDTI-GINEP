@@ -28,7 +28,7 @@
 
 Q 为原子 token，K/V 为展平的七个 TM token。四个注意力头，每头 64 维，按蛋白 mask 屏蔽 padding。上下文经过输出线性层、Dropout，对真实原子做 max/mean pooling，拼接 `512→256` 并归一化。
 
-`concat(protein, ligand_wide, cross_context)` 为 768 维，融合 MLP 为 `768→512→256`，每层后为 GELU 和 Dropout。三分类头为 `256→128→3`，隐藏层使用 GELU 和 Dropout(0.1)。辅助头为 `Linear(256,2)`。二分类辅助损失权重原配置为 0.3，但本仓库不包含训练调度器。
+`concat(protein, ligand_wide, cross_context)` 为 768 维，融合 MLP 为 `768→512→256`，每层后为 GELU 和 Dropout。默认 MLP 三分类头为 `256→128→3`，隐藏层使用 GELU 和 Dropout(0.1)。另支持 HMCN-F、HiAGM-TP、C-HMCNN 和 conditional-softmax，参数及概率口径见 README。独立辅助头为 `Linear(256,2)`，仅 MLP 且 `use_binary_aux=True` 时创建。二分类辅助损失权重原配置为 0.3，但本仓库不包含训练调度器。
 
 ## batch 输入
 
@@ -51,4 +51,4 @@ Q 为原子 token，K/V 为展平的七个 TM token。四个注意力头，每�
 
 批量化时，每个样本的 `atom_edge_index` 应增加此前样本的累计原子数；其余原子/边特征沿第一维拼接。GPCR 片段、BW 位置与序列必须来自同一靶点和相同序列版本。
 
-输出字典包含 `head_type="mlp"`、`logits [B,3]`、`repr [B,256]`、`protein_attn`/`tm_attn [B,4,Amax,7*Ltm]`，以及启用辅助头时的 `binary_logits [B,2]`。注意力用于接口解释，不能直接等同于已验证的关键残基作用。
+输出字典包含实际选择的 `head_type`、`logits [B,3]`、`repr [B,256]`、`protein_attn`/`tm_attn [B,4,Amax,7*Ltm]`，以及 MLP 启用辅助头时的 `binary_logits [B,2]`。conditional-softmax 另含 `active_logit [B]` 和 `cond_logits [B,2]`；层级头的 `logits` 是节点 logits，应通过 `extract_3class_probs` 转为互斥三类概率。注意力用于接口解释，不能直接等同于已验证的关键残基作用。
