@@ -1,6 +1,6 @@
 # HAGDTI-GINEP
 
-**GIN-EP 药物–靶点相互作用模型**包含ESMC 蛋白分支、GPCR 先验、ChemBERTa/药效团配体分支、GINE + 键特征 + RW-PE 原子图分支、原子到 TM 的交叉注意力、flat fusion，以及 MLP、HMCN-F、HiAGM-TP、C-HMCNN 和 conditional-softmax 五种可选分类头。
+**GIN-EP 药物–靶点相互作用模型**包含ESMC 蛋白分支、GPCR 先验、药效团配体、GINE + 键特征 + RW-PE 原子图分支、原子到 TM 的交叉注意力、flat fusion，以及 MLP、HMCN-F、HiAGM-TP、C-HMCNN 和 conditional-softmax 五种可选分类头。
 
 仓库包含模型实现、特征函数、接口测试和使用说明。训练数据、预训练权重及训练后检查点需自行提供。分子生成模型位于 [`model_gen_comparison`](model_gen_comparison/README.md)。
 
