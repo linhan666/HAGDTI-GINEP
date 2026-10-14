@@ -6,15 +6,11 @@ def pad_by_batch(
     batch_idx: torch.Tensor,
     batch_size: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    将 packed 表示 [N_total, D] 按 batch_idx 还原为 padded 表示 [B, Mmax, D]。
+    """Return padded [B, M, D] values and a boolean mask; True marks valid entries.
 
-    要求 batch_idx 已按 batch 顺序排序（dataset collate 自然满足）。
-
-    返回：
-        padded [B, Mmax, D]
-        mask   [B, Mmax]    bool, True = 真实 token
-    """
+batch_idx must be sorted by batch ID, with each graph occupying a contiguous
+range in packed [N, D]. One-dimensional packed input returns [B, M] values.
+"""
     device = packed.device
     if batch_idx.numel() == 0:
         D = packed.size(-1) if packed.dim() > 1 else 1
@@ -26,10 +22,10 @@ def pad_by_batch(
 
     counts  = torch.bincount(batch_idx, minlength=batch_size)            # [B]
     Mmax    = int(counts.max().item())
-    # 起始偏移
+
     cum     = torch.cumsum(counts, dim=0)
     offsets = torch.cat([counts.new_zeros(1), cum[:-1]], dim=0)          # [B]
-    pos     = torch.arange(packed.size(0), device=device) - offsets[batch_idx]  # 在所属 batch 内的位置
+    pos     = torch.arange(packed.size(0), device=device) - offsets[batch_idx]
 
     if packed.dim() == 1:
         padded = packed.new_zeros(batch_size, Mmax)

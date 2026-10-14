@@ -1,2 +1,2 @@
-# Preserve source snapshot bytes and their SHA-256 hashes.
+# Keep model source bytes stable across checkouts.
 *.py -text

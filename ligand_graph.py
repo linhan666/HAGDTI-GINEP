@@ -5,12 +5,12 @@ import torch
 
 _ATOM_TYPES = ["C", "N", "O", "S", "F", "Cl", "Br", "I", "P", "OTHER"]
 ATOM_TYPE_VOCAB = {a: i for i, a in enumerate(_ATOM_TYPES)}
-ATOM_TYPE_DIM   = len(_ATOM_TYPES)               # 10
+ATOM_TYPE_DIM   = len(_ATOM_TYPES)
 
-DEGREE_DIM        = 7   # 0..6
-FORMAL_CHARGE_DIM = 5   # -2,-1,0,1,2
-HYBRID_DIM        = 5   # SP, SP2, SP3, SP3D, SP3D2
-H_COUNT_DIM       = 5   # 0..4
+DEGREE_DIM        = 7
+FORMAL_CHARGE_DIM = 5
+HYBRID_DIM        = 5
+H_COUNT_DIM       = 5
 AROMATIC_DIM      = 1
 IN_RING_DIM       = 1
 
@@ -22,14 +22,14 @@ ATOM_FEATURE_DIM = (
     + H_COUNT_DIM
     + AROMATIC_DIM
     + IN_RING_DIM
-)  # = 34
+)
 
-# ── 键（bond）特征与随机游走位置编码（轴3 _ep 编码器使用；备份 ligand_graph.py.20260618.bak）──
+
 _BOND_TYPE_VOCAB = {"SINGLE": 0, "DOUBLE": 1, "TRIPLE": 2, "AROMATIC": 3}
 BOND_TYPE_DIM    = 4
 BOND_STEREO_DIM  = 6
-BOND_FEATURE_DIM = BOND_TYPE_DIM + 1 + 1 + BOND_STEREO_DIM   # = 12 (type + conjugated + in_ring + stereo)
-RW_PE_DIM        = 20                                        # random-walk PE 步数维度
+BOND_FEATURE_DIM = BOND_TYPE_DIM + 1 + 1 + BOND_STEREO_DIM
+RW_PE_DIM        = 20
 
 def _one_hot(idx: int, dim: int) -> np.ndarray:
     """安全 one-hot：越界写入 0 向量。"""
@@ -47,8 +47,8 @@ def _atom_feature_vec(atom) -> np.ndarray:
     feats = [
         _one_hot(_atom_type_idx(sym), ATOM_TYPE_DIM),
         _one_hot(min(atom.GetDegree(), DEGREE_DIM - 1), DEGREE_DIM),
-        _one_hot(int(atom.GetFormalCharge()) + 2, FORMAL_CHARGE_DIM),  # -2..2 → 0..4
-        _one_hot(int(atom.GetHybridization()) - 2, HYBRID_DIM),        # RDKit 枚举值偏移（粗略）
+        _one_hot(int(atom.GetFormalCharge()) + 2, FORMAL_CHARGE_DIM),  # Charges -2..2 map to bins 0..4.
+        _one_hot(int(atom.GetHybridization()) - 2, HYBRID_DIM),  # Shift RDKit enum by 2; indices outside 0..4 produce zeros.
         _one_hot(min(atom.GetTotalNumHs(), H_COUNT_DIM - 1), H_COUNT_DIM),
         np.array([1.0 if atom.GetIsAromatic() else 0.0], dtype=np.float32),
         np.array([1.0 if atom.IsInRing()      else 0.0], dtype=np.float32),
@@ -57,7 +57,7 @@ def _atom_feature_vec(atom) -> np.ndarray:
 
 def _bond_feature_vec(bond) -> np.ndarray:
     """RDKit Bond → 12 维键特征（type one-hot 4 + conjugated 1 + in_ring 1 + stereo one-hot 6）。"""
-    bt_idx = _BOND_TYPE_VOCAB.get(str(bond.GetBondType()), -1)   # 未知类型 → 全零
+    bt_idx = _BOND_TYPE_VOCAB.get(str(bond.GetBondType()), -1)
     feats = [
         _one_hot(bt_idx, BOND_TYPE_DIM),
         np.array([1.0 if bond.GetIsConjugated() else 0.0], dtype=np.float32),
@@ -79,7 +79,7 @@ def _random_walk_pe(bond_edge_index: np.ndarray, n_atom: int,
     A[bond_edge_index[0], bond_edge_index[1]] = 1.0
     deg  = A.sum(axis=1)
     dinv = np.where(deg > 0, 1.0 / deg, 0.0)
-    P    = A * dinv[:, None]                 # 行归一化转移矩阵
+    P    = A * dinv[:, None]
     Pk   = P.copy()
     for k in range(walk_length):
         pe[:, k] = np.diagonal(Pk)
@@ -89,7 +89,7 @@ def _random_walk_pe(bond_edge_index: np.ndarray, n_atom: int,
 def _placeholder_atom_graph() -> Dict[str, torch.Tensor]:
     """SMILES 解析失败时返回的最小图（1 个原子，1 条 self-loop）。"""
     feat = np.zeros(ATOM_FEATURE_DIM, dtype=np.float32)
-    feat[_atom_type_idx("C")] = 1.0           # 默认碳
+    feat[_atom_type_idx("C")] = 1.0
     return {
         "atom_features":   torch.from_numpy(feat).unsqueeze(0),       # [1, F]
         "atom_edge_index": torch.tensor([[0], [0]], dtype=torch.long),# [2, 1]
@@ -99,14 +99,7 @@ def _placeholder_atom_graph() -> Dict[str, torch.Tensor]:
     }
 
 def mol_to_atom_graph(smiles: str) -> Dict[str, torch.Tensor]:
-    """
-    SMILES → 原子图特征。
-
-    返回 dict：
-      atom_features    [N_atom, ATOM_FEATURE_DIM]  float32
-      atom_edge_index  [2, E_atom]                 long  (无向 + self-loop)
-      atom_types       [N_atom]                    long  (原子类型 id，供 substructure 引用)
-    """
+    """Build atom features [N, 34], edges [2, E], bond features [E, 12] and RW-PE [N, 20], including self-loops."""
     try:
         from rdkit import Chem
     except ImportError as e:
@@ -125,7 +118,7 @@ def mol_to_atom_graph(smiles: str) -> Dict[str, torch.Tensor]:
         [_atom_type_idx(a.GetSymbol()) for a in mol.GetAtoms()], dtype=np.int64
     )
 
-    # 无向 edge_index + self-loop；同步构建键特征（self-loop 给全零）
+
     src, dst, edge_feats = [], [], []
     bond_src, bond_dst = [], []                      # 仅键边（供 RWPE，不含 self-loop）
     for bond in mol.GetBonds():

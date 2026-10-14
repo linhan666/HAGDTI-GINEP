@@ -1,3 +1,5 @@
+> 本文记录首次原样归档时的检查结果。此后仅清理了注释、文档字符串和空白；当前文件哈希见 PROVENANCE.json。下列原始哈希仍作为来源记录保留。
+
 # 原样提取独立审查
 
 审查日期：2026-10-14。审查者：独立 Codex Agent，未参与归档复制；没有冒称 Sonnet。范围：model_gen_comparison 下七个 Python 文件。原始路径：C:/Users/Admin/.codex/worktrees/bea2/HAGDTIGen/gen。

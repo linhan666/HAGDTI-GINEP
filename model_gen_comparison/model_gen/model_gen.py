@@ -4,9 +4,7 @@ import torch.nn.functional as F
 from typing import Optional, Dict
 import math
 
-# ==============================================================================
-# 基础组件
-# ==============================================================================
+
 class Namespace:
     def __init__(self, argvs):
         for k, v in argvs.items(): setattr(self, k, v)
@@ -52,13 +50,13 @@ class DrugFeatureFusion(nn.Module):
         self.gate_net = nn.Sequential(nn.Linear(out_dim * 2, out_dim), nn.Sigmoid())
         self.layer_norm = nn.LayerNorm(out_dim)
     def forward(self, bermol, morgan):
-        m_feat = self.morgan_proj(morgan) 
-        b_feat = self.bermol_proj(bermol) 
+        m_feat = self.morgan_proj(morgan)
+        b_feat = self.bermol_proj(bermol)
         combined = torch.cat([b_feat, m_feat], dim=1)
         z = self.gate_net(combined)
         return self.layer_norm(z * b_feat + (1 - z) * m_feat)
 
-# (Intention & BiIntention 保持不变)
+
 class Intention(nn.Module):
     def __init__(self, dim, num_heads, kqv_bias=False):
         super(Intention, self).__init__()
@@ -96,17 +94,15 @@ class BiIntention(nn.Module):
         self.norm = nn.LayerNorm(embed_dim)
     def forward(self, drug, protein):
         for i in range(self.layer):
-            v_p = self.drug_intention[i](drug, protein) 
+            v_p = self.drug_intention[i](drug, protein)
             v_d = self.protein_intention[i](protein, drug)
-            drug = drug + v_d 
+            drug = drug + v_d
             protein = protein + v_p
             drug = self.norm(drug)
             protein = self.norm(protein)
         return drug, protein
 
-# ==============================================================================
-# Backbone: WideDeepModel_Core
-# ==============================================================================
+
 class WideDeepModel_Core(nn.Module):
     def __init__(self, bermol_dim=768, esm_dim=640, morgan_dim=1024, esm2_seq_dim=1280, hidden_dim=256, interaction_dim=128, interaction_layers=1, num_heads=4):
         super(WideDeepModel_Core, self).__init__()
@@ -118,55 +114,53 @@ class WideDeepModel_Core(nn.Module):
         self.classifier = nn.Sequential(nn.Linear(hidden_dim + (interaction_dim * 2), 256), nn.LayerNorm(256), nn.Mish(), nn.Dropout(0.2), nn.Linear(256, 128), nn.LayerNorm(128), nn.Mish(), nn.Dropout(0.2), nn.Linear(128, 1))
 
     def forward(self, b_cls, e_cls, morgan_fp, b_seq, b_mask, p_seq_emb, p_mask):
-        fused_drug_feat = self.drug_fusion_layer(b_cls, morgan_fp) 
+        fused_drug_feat = self.drug_fusion_layer(b_cls, morgan_fp)
         wide_out = self.wide_net(torch.cat([fused_drug_feat, e_cls], dim=1))
-        
+
         d_feat, p_feat = self.drug_proj(b_seq), self.prot_proj(p_seq_emb)
-        d_enhanced, p_enhanced = self.bi_intention(d_feat, p_feat) 
+        d_enhanced, p_enhanced = self.bi_intention(d_feat, p_feat)
         deep_out = torch.cat((d_enhanced.max(dim=1)[0], p_enhanced.max(dim=1)[0]), dim=1)
-        
+
         logits = self.classifier(torch.cat([wide_out, deep_out], dim=1)).squeeze(-1)
-        
-        # 返回: logits, 交互增强序列(d_enhanced), 原生药物序列(b_seq), 原生蛋白特征(e_cls)
+
+
         return logits, d_enhanced, b_seq, e_cls
 
-# ==============================================================================
-# Main Model: FusionDeepDTAGen (Deep Version)
-# ==============================================================================
+
 class FusionDeepDTAGen(nn.Module):
     def __init__(self, tokenizer, bermol_dim=768, esm_seq_dim=1280, esm_cls_dim=640, morgan_dim=1024):
         super(FusionDeepDTAGen, self).__init__()
-        
+
         self.dti_model = WideDeepModel_Core(bermol_dim, esm_cls_dim, morgan_dim, esm_seq_dim, 256, 128, 1, 4)
         self.gen_hidden_dim = 384
         self.ff_dim, self.heads, self.layers, self.max_len = 1024, 4, 4, 512
-        
-        # 1. Z Encoder (Structure Extraction)
+
+
         self.raw_drug_proj = nn.Linear(bermol_dim, self.gen_hidden_dim)
-        
-        # [关键增强] Z Encoder 的 Transformer 层，用于提取序列上下文
+
+
         self.z_encoder = nn.ModuleList([TransformerEncoderWrapper(Namespace({'encoder_embed_dim': self.gen_hidden_dim, 'encoder_attention_heads': self.heads, 'encoder_ffn_embed_dim': self.ff_dim, 'dropout': 0.1, 'encoder_normalize_before': True})) for _ in range(2)])
-        
+
         self.z_mean = nn.Linear(self.gen_hidden_dim, self.gen_hidden_dim)
         self.z_logvar = nn.Linear(self.gen_hidden_dim, self.gen_hidden_dim)
-        
-        # 2. Bridge
+
+
         self.seq_bridge = nn.Linear(128, self.gen_hidden_dim)
-        
-        # 3. Additive Injection
+
+
         self.affinity_proj = nn.Linear(1, self.gen_hidden_dim)
         self.prot_proj = nn.Linear(esm_cls_dim, self.gen_hidden_dim)
-        
-        # 4. Decoder & Fusion
+
+
         self.decoder = nn.ModuleList([TransformerDecoderWrapper(Namespace({'decoder_embed_dim': self.gen_hidden_dim, 'decoder_attention_heads': self.heads, 'decoder_ffn_embed_dim': self.ff_dim, 'dropout': 0.2, 'decoder_normalize_before': True})) for _ in range(self.layers)])
         self.decoder_norm = nn.LayerNorm(self.gen_hidden_dim)
-        
+
         self.fusion_encoder = nn.ModuleList([TransformerEncoderWrapper(Namespace({'encoder_embed_dim': self.gen_hidden_dim, 'encoder_attention_heads': self.heads, 'encoder_ffn_embed_dim': self.ff_dim, 'dropout': 0.2, 'encoder_normalize_before': True})) for _ in range(2)])
         self.fusion_norm = nn.LayerNorm(self.gen_hidden_dim)
-        
+
         self.pos_encoding = PositionalEncoding(self.gen_hidden_dim)
         self.zz_seg_encoding = nn.Parameter(torch.randn(self.gen_hidden_dim))
-        
+
         self.vocab_size = len(tokenizer)
         self.word_pred = nn.Sequential(nn.Linear(self.gen_hidden_dim, self.gen_hidden_dim), nn.PReLU(), nn.LayerNorm(self.gen_hidden_dim), nn.Linear(self.gen_hidden_dim, self.vocab_size))
         self.word_embed = nn.Embedding(self.vocab_size, self.gen_hidden_dim)
@@ -174,17 +168,17 @@ class FusionDeepDTAGen(nn.Module):
         self.unk_value = tokenizer.s2i.get('<unk>', self.pad_value)
 
     def reparameterize(self, mu, logvar):
-        # [修改] 使用 DeepDTAGen 原作的 -abs(logvar) 策略，限制方差，防止坍塌
-        z_log_var = -torch.abs(logvar) 
+
+        z_log_var = -torch.abs(logvar)
         std = torch.exp(0.5 * z_log_var)
         eps = torch.randn_like(std)
         return mu + eps * std
 
     def expand_then_fusing(self, z_seq, d_seq, b_mask):
-        z_seq = z_seq + self.zz_seg_encoding 
-        zzz = torch.cat((d_seq, z_seq), dim=0) 
-        full_mask = torch.cat((b_mask, b_mask), dim=1) 
-        for layer in self.fusion_encoder: 
+        z_seq = z_seq + self.zz_seg_encoding
+        zzz = torch.cat((d_seq, z_seq), dim=0)
+        full_mask = torch.cat((b_mask, b_mask), dim=1)
+        for layer in self.fusion_encoder:
             zzz = layer(zzz, encoder_padding_mask=full_mask)
         zzz = self.fusion_norm(zzz)
         return zzz, full_mask
@@ -193,81 +187,81 @@ class FusionDeepDTAGen(nn.Module):
         b_cls, e_cls, morgan = data.b_cls, data.e_cls, data.morgan
         b_seq, b_mask, p_seq, p_mask = data.b_seq, data.b_mask, data.e_seq, data.e_mask
         targets, affinity_val = data.target_seq, getattr(data, 'affinity', None)
-        
-        # 1. Backbone
+
+
         logits, d_enhanced, raw_b_seq, raw_prot_cls = self.dti_model(b_cls, e_cls, morgan, b_seq, b_mask, p_seq, p_mask)
         dti_loss = F.binary_cross_entropy_with_logits(logits, data.y.float())
-        
-        # 2. Z Encoder (Enhanced with Transformer)
+
+
         raw_b_proj = self.raw_drug_proj(raw_b_seq).permute(1, 0, 2) # [Seq, B, H]
-        
-        # [关键] 通过 Transformer 提取上下文
+
+
         z_hidden = raw_b_proj
         for layer in self.z_encoder:
             z_hidden = layer(z_hidden, encoder_padding_mask=(b_mask==0))
-            
+
         mu, logvar = self.z_mean(z_hidden), self.z_logvar(z_hidden)
         z_seq = self.reparameterize(mu, logvar)
-        
-        # 3. Injection
+
+
         if affinity_val is None: affinity_val = torch.zeros_like(data.y.float())
         aff_emb = self.affinity_proj(affinity_val.unsqueeze(1).float()).unsqueeze(0)
         prot_emb = self.prot_proj(raw_prot_cls).unsqueeze(0)
-        
+
         z_seq = z_seq + aff_emb + prot_emb
-        
-        # 4. Fusion Input: Interaction Enhanced Seq
+
+
         d_enh_mapped = self.seq_bridge(d_enhanced).permute(1, 0, 2)
-        
-        # 5. Fuse
+
+
         zzz, encoder_mask = self.expand_then_fusing(z_seq, d_enh_mapped, (b_mask==0))
-        
-        # 6. Decode
+
+
         decoder_inputs = targets
         if self.training and word_dropout > 0:
             mask = (torch.rand(targets.shape, device=targets.device) < word_dropout) & (targets != self.pad_value)
             decoder_inputs = torch.where(mask, torch.full(targets.shape, self.unk_value, device=targets.device), targets)
-            
+
         x = self.pos_encoding(self.word_embed(decoder_inputs).permute(1, 0, 2))
         tgt_mask = torch.triu(torch.ones(targets.size(1), targets.size(1)), diagonal=1).bool().to(targets.device)
         for layer in self.decoder: x = layer(x, zzz, x_mask=tgt_mask, mem_padding_mask=encoder_mask)
-        
+
         lm_loss = F.cross_entropy(self.word_pred(self.decoder_norm(x).permute(1, 0, 2)).reshape(-1, self.vocab_size), targets.reshape(-1), ignore_index=self.pad_value)
-        
-        # [修改] KL Loss 对齐 DeepDTAGen 原作 (除以 64, 使用 abs logvar)
+
+
         z_log_var = -torch.abs(logvar)
         kl_loss = -0.5 * torch.sum(1 + z_log_var - mu.pow(2) - z_log_var.exp()) / 64
-        # kl_loss = torch.mean(torch.sum(-0.5 * (1 + logvar - mu.pow(2) - logvar.exp()), dim=-1))
-        
+
+
         return logits, None, dti_loss, lm_loss, kl_loss
 
     def generate(self, data, random_sample=False, affinity_override=None, temperature=1.0):
         val_scalar = float(affinity_override) if affinity_override else 9.0
         val = torch.full((data.b_seq.size(0),), val_scalar, device=data.b_seq.device)
-        
-        with torch.no_grad(): 
+
+        with torch.no_grad():
             _, d_enhanced, raw_b_seq, raw_prot_cls = self.dti_model(data.b_cls, data.e_cls, data.morgan, data.b_seq, data.b_mask, data.e_seq, data.e_mask)
-        
-        # 1. Z
+
+
         raw_b_proj = self.raw_drug_proj(raw_b_seq).permute(1, 0, 2)
         z_hidden = raw_b_proj
         for layer in self.z_encoder:
             z_hidden = layer(z_hidden, encoder_padding_mask=(data.b_mask==0))
-            
+
         mu, logvar = self.z_mean(z_hidden), self.z_logvar(z_hidden)
         z_seq = self.reparameterize(mu, logvar)
-        
-        # 2. Inject
+
+
         aff_emb = self.affinity_proj(val.unsqueeze(1).float()).unsqueeze(0)
         prot_emb = self.prot_proj(raw_prot_cls).unsqueeze(0)
         z_seq = z_seq + aff_emb + prot_emb
-        
-        # 3. Seq
+
+
         d_enh_mapped = self.seq_bridge(d_enhanced).permute(1, 0, 2)
-        
-        # 4. Fuse
+
+
         zzz, encoder_mask = self.expand_then_fusing(z_seq, d_enh_mapped, (data.b_mask==0))
-        
+
         return self._generate(zzz, encoder_mask, random_sample, temperature)
 
     def _generate(self, zzz, encoder_mask, random_sample=False, temperature=1.0):

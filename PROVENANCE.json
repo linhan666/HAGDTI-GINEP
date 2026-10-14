@@ -62,7 +62,7 @@
     "data.py": "Pharmacophore helper and dimensions only",
     "heads.py": "All five original classification heads, hierarchical labels, MCM/loss and unified probability conversion",
     "tensor_utils.py": "Original pad_by_batch helper",
-    "esmc_tokenizer.py": "Unchanged source copy"
+    "esmc_tokenizer.py": "Source implementation retained; comments and docstrings shortened"
   },
   "classification_heads": [
     "mlp",
@@ -70,5 +70,10 @@
     "hiagm",
     "chmcnn",
     "cond_softmax"
-  ]
+  ],
+  "cleanup": {
+    "date": "2026-10-14",
+    "baseline_commit": "21dadbe",
+    "scope": "Remove redundant comments and shorten docstrings; executable AST unchanged across all 18 Python files"
+  }
 }

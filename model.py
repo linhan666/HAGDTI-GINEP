@@ -1,4 +1,4 @@
-"""Complete GIN-EP model; alternate architectures have been removed."""
+"""GIN-EP model with ESMC, ligand encoders, cross attention and selectable prediction heads."""
 import glob
 import json
 import logging
@@ -22,14 +22,7 @@ class _ESMCOutput:
         self.last_hidden_state = last_hidden_state
 
 class ESMCBackboneWrapper(nn.Module):
-    """
-    将 ESMC 模型（EvolutionaryScale esm 包）包装为 HuggingFace 风格接口。
-
-    输入: input_ids [B, L]  (来自 EsmSequenceTokenizer)
-          attention_mask [B, L]  (ESMC 内部通过 token ID 判断 pad，
-                                  此参数保留以兼容调用方接口，不显式传入 ESMC)
-    输出: _ESMCOutput，其 .last_hidden_state = [B, L, d_model]
-    """
+    """Expose ESMC embeddings as last_hidden_state [B, L, d_model]. ESMC infers padding from token IDs."""
 
     def __init__(self, esmc_model: nn.Module):
         super().__init__()
@@ -74,16 +67,11 @@ def _validate_esmc_architecture(arch: Dict[str, int]) -> None:
         raise ValueError(f'[ESMC] d_model ({d_model}) 必须能被 n_heads ({n_heads}) 整除')
 
 def load_esmc_model(local_path: str) -> ESMCBackboneWrapper:
-    """
-    从本地目录加载 ESMC 模型并返回包装后的 ESMCBackboneWrapper。
+    """Load from local_path via ESMC.from_pretrained first.
 
-    加载策略（按顺序尝试）：
-      1. ESMC.from_pretrained(local_path)   — esm SDK 原生目录加载
-      2. 手动读取 config.json + *.pth       — 备用方案
-
-    参数:
-        local_path: 包含 config.json 和 *.pth 文件的本地目录（如 ~/LH/PLM/ESMC_300M）
-    """
+On registry failure, read config.json and the first .pth file from that
+local directory, infer the architecture, and load the state dict strictly.
+"""
     from esm.models.esmc import ESMC
     from esmc_tokenizer import load_esmc_tokenizer
     local_path = os.path.expanduser(local_path)
@@ -112,15 +100,12 @@ def load_esmc_model(local_path: str) -> ESMCBackboneWrapper:
     return ESMCBackboneWrapper(model)
 
 def freeze_encoder(model: nn.Module, n: int):
-    """
-    冻结编码器全部参数，然后解冻最后 n 层（n=0 则全部冻结）。
+    """Freeze all parameters; n <= 0 leaves the entire backbone frozen.
 
-    支持的层路径：
-      · model.layers                            — ESM2 (HuggingFace)
-      · model.encoder.layer                     — BERT 风格
-      · model.esmc.transformer.blocks           — ESMC (ESMCBackboneWrapper)
-      · model.transformer.blocks                — ESMC 直接访问
-    """
+For n > 0, unfreeze the last n layers and final normalization parameters.
+Supported layer paths: layers, encoder.layer, esmc.transformer.blocks,
+and transformer.blocks.
+"""
     for p in model.parameters():
         p.requires_grad = False
     if n <= 0:
@@ -216,11 +201,7 @@ class ProteinEncoder(nn.Module):
         self.drop = nn.Dropout(cfg.dropout)
 
     def set_embedding_cache(self, embeds: Dict, device: str) -> None:
-        """Register frozen ESMC outputs on CPU for batch-wise device transfer.
-
-        tm7 keys: full_cls, pocket_cls, tm_hidden.
-        full_sequence keys: full_cls, full_hidden, pocket_cls, tm_cls_hidden.
-        """
+        """Store frozen full_cls, pocket_cls and tm_hidden on CPU; transfer only the current batch."""
         required = {'full_cls', 'pocket_cls', 'tm_hidden'}
         missing = required.difference(embeds)
         if missing:

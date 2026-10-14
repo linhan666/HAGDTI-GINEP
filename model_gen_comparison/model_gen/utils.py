@@ -7,12 +7,10 @@ from sklearn.metrics import (roc_auc_score, average_precision_score,
                              f1_score, accuracy_score, precision_recall_curve, auc,
                              precision_score, recall_score)
 
-# ==============================================================================
-# 1. Tokenizer (保持不变，用于 SMILES 生成)
-# ==============================================================================
+
 class Tokenizer:
     NUM_RESERVED_TOKENS = 32
-    # Fixed-length reserved token block; trailing slots reserved for future use.
+
     SPECIAL_TOKENS = (
         '<sos>', '<eos>', '<pad>', '<mask>', '<sep>', '<unk>'
     ) + tuple(f'<t_{i}>' for i in range(6, NUM_RESERVED_TOKENS))
@@ -23,7 +21,7 @@ class Tokenizer:
                         r'|@@|@'
                         r'|%\d{2}'
                         r'|.')
-    
+
     ATOM_PATTEN = re.compile(r'\[[^\]]+\]'
                              r'|B[r]?|C[l]?|N|O|P|S|F|I'
                              r'|[bcnops]')
@@ -47,10 +45,10 @@ class Tokenizer:
         return len(self.vocabs)
 
     def parse(self, smiles):
-        if not smiles:  # handles None and empty string
+        if not smiles:
             return [self.s2i['<sos>'], self.s2i['<eos>']]
         l = []
-        # <sos> is added at start, <eos> at end
+
         for s in ('<sos>', *re.findall(Tokenizer.PATTEN, smiles), '<eos>'):
             if s not in self.s2i:
                 a = self.s2i['<unk>']
@@ -76,9 +74,6 @@ class Tokenizer:
             smiles.append(''.join(s))
         return smiles
 
-# ==============================================================================
-# 2. 评价指标 (适配 DTI 分类任务)
-# ==============================================================================
 
 def get_auc(y_true, y_prob):
     """计算 ROC-AUC"""
@@ -88,7 +83,7 @@ def get_auc(y_true, y_prob):
     try:
         return roc_auc_score(y_true, y_prob)
     except ValueError as e:
-        # Single-class labels: AUC undefined; warn and return NaN for transparency.
+
         warnings.warn(f"get_auc: roc_auc_score failed ({e}), returning NaN")
         return float('nan')
 
@@ -119,19 +114,7 @@ def get_metrics(y_true, y_prob, threshold=0.5):
 
 
 def get_ternary_metrics(y_true, y_pred_probs):
-    """
-    Three-class DTI classification metrics for v4 ternary activity labels.
-
-    Args:
-        y_true:       array-like [N], int values in {0=inactive, 1=agonist, 2=inhibitor}
-        y_pred_probs: array-like [N, 3], softmax probabilities for the three classes
-
-    Returns:
-        dict with keys: ACC3, macro_F1,
-                        F1_inactive/agonist/inhibitor,
-                        precision_inactive/agonist/inhibitor,
-                        recall_inactive/agonist/inhibitor
-    """
+    """Three-class DTI classification metrics for v4 ternary activity labels."""
     if isinstance(y_true, torch.Tensor):
         y_true = y_true.cpu().detach().numpy()
     if isinstance(y_pred_probs, torch.Tensor):
@@ -171,9 +154,6 @@ def get_ternary_metrics(y_true, y_pred_probs):
 
     return result
 
-# ==============================================================================
-# 3. 日志工具
-# ==============================================================================
 
 def logging(msg, log_dir):
     """简单的日志记录"""

@@ -32,7 +32,7 @@ class _EPInput(nn.Module):
         if not self.use_pe:
             return x
         pe = batch.get("atom_rw_pe")
-        if pe is None:   # 兜底：batch 中无 PE（旧缓存）→ 用零投影，保持维度
+        if pe is None:
             return torch.cat([x, x.new_zeros(x.size(0), self.pe_lin.out_features)], dim=1)
         return torch.cat([x, self.pe_lin(self.pe_norm(pe))], dim=1)
 
@@ -66,7 +66,7 @@ class GINEdgePEAtomEncoder(nn.Module):
         ea = batch.get("atom_edge_attr") if self.use_edge else None
         if ea is not None:
             return self.edge_emb(ea)
-        return x.new_zeros(ei.size(1), x.size(1))   # 边关闭：零边嵌入
+        return x.new_zeros(ei.size(1), x.size(1))
 
     def forward(self, batch: Dict[str, Any]) -> torch.Tensor:
         x  = self.node_proj(self.inp(batch))
