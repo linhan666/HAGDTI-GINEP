@@ -4,6 +4,8 @@
 
 ## model_gen
 
+![model_gen 模型架构](assets/model_gen_architecture.png)
+
 模型文件：[`model_gen/model_gen.py`](model_gen/model_gen.py)。训练入口：[`model_gen/train_gen.py`](model_gen/train_gen.py)。SMILES 分词、词表和数据辅助函数位于 [`model_gen/utils.py`](model_gen/utils.py)。
 
 模型包括药物–靶点预测和条件分子生成两个任务。`WideDeepModel_Core` 使用 BerMol CLS、Morgan 指纹及 ESM CLS 构建全局表示，同时通过 BiIntention 处理 BerMol token 和 ESM residue 表示。分类器使用融合表示预测二分类活性。
@@ -20,6 +22,8 @@ python train_gen.py --data_path /path/data.csv --output_dir /path/output --bermo
 当前实现的生成交叉熵使用同位置 target；重建损失不能解释为下一 token 生成能力。交互和全局池化未应用 padding mask，使用时需检查批次长度对输出的影响。
 
 ## model_gen_deep
+
+![model_gen_deep 模型架构](assets/model_gen_deep_architecture.png)
 
 模型文件：[`model_gen_deep/model_gen_deep.py`](model_gen_deep/model_gen_deep.py)。训练入口：[`model_gen_deep/train_gen_deep_nowide.py`](model_gen_deep/train_gen_deep_nowide.py)。SMILES 分词、词表和数据辅助函数位于 [`model_gen_deep/utils.py`](model_gen_deep/utils.py)。
 
