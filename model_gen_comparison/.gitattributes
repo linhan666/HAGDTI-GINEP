@@ -1,0 +1,2 @@
+# Preserve source snapshot bytes and their SHA-256 hashes.
+*.py -text

@@ -1,0 +1,50 @@
+{
+  "date": "2026-10-14",
+  "source_repository": "https://github.com/linhan666/HAGDTIGen",
+  "source_commit": "3a9298603119ff245ab5be95727e3a0896fea1d4",
+  "mode": "byte-identical archival extraction; no scientific validation",
+  "files": [
+    {
+      "path": "model_gen/model_gen.py",
+      "source": "gen/model_gen.py",
+      "sha256": "52411e5277dae49f668c9bc2ac9c40e713f4752f9ea0710a0fee1977f77a7a65",
+      "bytes": 16244
+    },
+    {
+      "path": "model_gen/train_gen.py",
+      "source": "gen/train_gen.py",
+      "sha256": "906cf350ebf9fe76b4a050952029fafb3154e126cf9fbe320a55e3bbafa09e2f",
+      "bytes": 20189
+    },
+    {
+      "path": "model_gen/utils.py",
+      "source": "gen/utils.py",
+      "sha256": "5acf28ae00d0205f143eba63d690836d7108cfdbed73602fa68badf10af6a2fe",
+      "bytes": 7429
+    },
+    {
+      "path": "model_gen_deep/model_gen_deep.py",
+      "source": "gen/model_gen_deep.py",
+      "sha256": "aebe70e950acf90e135fd772a0c194f61df4c69e33ae15e7c87faa6f8d897ea6",
+      "bytes": 16004
+    },
+    {
+      "path": "model_gen_deep/train_gen_deep.py",
+      "source": "gen/train_gen_deep.py",
+      "sha256": "c386bf81526dc6619b415055be3810a9a4d620bfe03d81e1625ea79039424703",
+      "bytes": 20199
+    },
+    {
+      "path": "model_gen_deep/utils.py",
+      "source": "gen/utils.py",
+      "sha256": "5acf28ae00d0205f143eba63d690836d7108cfdbed73602fa68badf10af6a2fe",
+      "bytes": 7429
+    },
+    {
+      "path": "model_gen_deep/train_gen_deep_nowide.py",
+      "source": "gen/train_gen_deep_nowide.py",
+      "sha256": "fc34b86cca5cab621b0131cfabf5bc97f183e250e0c3c18c6c4de31cc41a74a7",
+      "bytes": 17002
+    }
+  ]
+}
