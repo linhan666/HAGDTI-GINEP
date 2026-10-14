@@ -56,40 +56,4 @@ HMCN-F 默认 `hierarchy=[1,2]`、`hidden_dim=384`、`beta=0.5`；HiAGM-TP 默�
 | `tests/test_architecture.py` | 模拟骨干的完整前向/反向与图边界检查 |
 | `ARCHITECTURE.md` | 数学路径、输入张量和接口说明 |
 
-## 使用
-
-建议在独立 Python 环境中安装 `requirements.txt`。PyTorch 应按实际 CPU/CUDA 环境安装；这里的依赖列表不是锁定的复现实验环境。
-
-```bash
-python -m pip install -r requirements.txt
-python -B -X utf8 run_ginep.py --head hmcnf
-python -B -X utf8 -m unittest discover -s tests -v
-```
-
-上述配置打印和测试不下载预训练权重。测试通过模拟 ESMC/ChemBERTa 输出检查架构，不验证真实预训练模型或科学预测效果。
-
-加载真实完整模型：
-
-```python
-from ginep import GINEPConfig, build_model
-from heads import extract_3class_probs
-
-cfg = GINEPConfig()
-cfg.head_type = "hmcnf"  # mlp / hmcnf / hiagm / chmcnn / cond_softmax
-cfg.esmc_local_path = "/path/to/ESMC_300M"
-cfg.ligand_encoder = "/path/to/ChemBERTa-zinc-base-v1"
-model = build_model(cfg).eval()
-# batch 张量按 ARCHITECTURE.md 准备，并与模型放在同一设备。
-# output = model(batch)
-# probabilities = extract_3class_probs(output)
-```
-
-默认 ESMC-300M 隐藏维度为 960；若使用 ESMC-600M，须同步设置 `esmc_model_size="600m"` 和 `protein_hidden=1152`。ChemBERTa 隐藏维度须与 `ligand_hidden=768` 对齐。
-
-## 输入与运行约定
-
-- 原始数据行为保留：非法或空 SMILES 会生成占位图；缺失键属性或 RW-PE 会使用零值降级。正式推理前应校验输入，不能把占位图当作有效化学结构。
-- 训练模式的 BatchNorm 需要足够的节点样本；单原子单样本批次可能报错。推理应使用 `model.eval()`。
-- TM token mask 保留原始分词器口径；没有新增残基筛选或口袋结构推断。默认长度限制可能截断序列，GPCRdb 片段和 motif 特征需由调用者提供。
-
 本仓库未自行增加开源许可证；使用、分发及预训练模型许可需依据原项目和相应模型条款。

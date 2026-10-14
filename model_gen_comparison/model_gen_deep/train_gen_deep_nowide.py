@@ -286,7 +286,9 @@ def train(args):
     train_size = int(0.9 * len(dataset))
     train_ds, test_ds = torch.utils.data.random_split(dataset, [train_size, len(dataset) - train_size])
 
-    loader_kwargs = dict(batch_size=args.batch_size, num_workers=args.num_workers, pin_memory=True, collate_fn=collate_fn, persistent_workers=True, prefetch_factor=2)
+    loader_kwargs = dict(batch_size=args.batch_size, num_workers=args.num_workers, pin_memory=device.type == "cuda", collate_fn=collate_fn)
+    if args.num_workers > 0:
+        loader_kwargs.update(persistent_workers=True, prefetch_factor=2)
     train_loader = DataLoader(train_ds, shuffle=True, **loader_kwargs)
     test_loader = DataLoader(test_ds, shuffle=False, **loader_kwargs)
 
@@ -369,7 +371,7 @@ def train(args):
                 print("Early Stopping!")
                 break
 
-if __name__ == "__main__":
+def build_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", type=str, required=True)
     parser.add_argument("--output_dir", type=str, default="./output_fusion_final_deep_nowide")
@@ -381,5 +383,12 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=12)
     parser.add_argument("--word_dropout", type=float, default=0.2)
     parser.add_argument("--patience", type=int, default=6)
-    args = parser.parse_args()
-    train(args)
+    return parser
+
+
+def main(argv=None):
+    train(build_parser().parse_args(argv))
+
+
+if __name__ == "__main__":
+    main()

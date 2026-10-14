@@ -4,6 +4,18 @@ import torch.nn.functional as F
 from typing import Optional, Dict
 import math
 
+def _sequence_mask(mask, sequence, name):
+    if sequence.ndim != 3 or sequence.size(1) == 0:
+        raise ValueError(f"{name} must have shape [batch, nonempty sequence, features]")
+    valid = torch.ones(sequence.shape[:2], dtype=torch.bool, device=sequence.device) if mask is None else mask.to(device=sequence.device).bool()
+    if valid.shape != sequence.shape[:2] or not valid.any(dim=1).all():
+        raise ValueError(f"{name} requires a matching mask and at least one valid token per sample")
+    return valid
+
+
+def _masked_max(sequence, valid):
+    return sequence.masked_fill(~valid.unsqueeze(-1), float("-inf")).max(dim=1).values
+
 
 class Namespace:
     def __init__(self, argvs):
@@ -69,21 +81,30 @@ class Intention(nn.Module):
         self.wv = nn.Linear(dim, dim, bias=kqv_bias)
         self.softmax = nn.Softmax(dim=-2)
         self.out = nn.Linear(dim, dim)
-    def forward(self, x, query=None):
-        if query is None: query = x
+    def forward(self, x, query=None, key_mask=None, query_mask=None):
+        if query is None:
+            query = x
+            if query_mask is None:
+                query_mask = key_mask
+        key_valid = _sequence_mask(key_mask, x, "key sequence")
+        query_valid = _sequence_mask(query_mask, query, "query sequence")
+        x = x.masked_fill(~key_valid.unsqueeze(-1), 0)
+        query = query.masked_fill(~query_valid.unsqueeze(-1), 0)
         q_out, k_out, v_out = self.wq(query), self.wk(x), self.wv(x)
         b, n, c = x.shape
         b_q, n_q, c_q = query.shape
         key = k_out.reshape(b, n, self.head, self.head_dim).permute(0, 2, 1, 3)
+        key = key.masked_fill(~key_valid[:, None, :, None], 0)
         key_t = key.permute(0, 1, 3, 2)
         value = v_out.reshape(b, n, self.head, self.head_dim).permute(0, 2, 1, 3)
+        value = value.masked_fill(~key_valid[:, None, :, None], 0)
         query_reshaped = q_out.reshape(b_q, n_q, self.head, self.head_dim).permute(0, 2, 1, 3)
         kk = key_t @ key
         kk = self.alpha * torch.eye(kk.shape[-1], device=x.device) + kk
         kk_inv = torch.inverse(kk)
         attn_map = self.softmax((kk_inv @ key_t) @ value)
         out = (query_reshaped @ attn_map).permute(0, 2, 1, 3).reshape(b_q, n_q, c_q)
-        return self.out(out)
+        return self.out(out).masked_fill(~query_valid.unsqueeze(-1), 0)
 
 class BiIntention(nn.Module):
     def __init__(self, embed_dim, layer=1, num_head=4):
@@ -92,14 +113,18 @@ class BiIntention(nn.Module):
         self.drug_intention = nn.ModuleList([Intention(dim=embed_dim, num_heads=num_head) for _ in range(layer)])
         self.protein_intention = nn.ModuleList([Intention(dim=embed_dim, num_heads=num_head) for _ in range(layer)])
         self.norm = nn.LayerNorm(embed_dim)
-    def forward(self, drug, protein):
+    def forward(self, drug, protein, drug_mask=None, protein_mask=None):
+        drug_valid = _sequence_mask(drug_mask, drug, "drug sequence")
+        protein_valid = _sequence_mask(protein_mask, protein, "protein sequence")
+        drug = drug.masked_fill(~drug_valid.unsqueeze(-1), 0)
+        protein = protein.masked_fill(~protein_valid.unsqueeze(-1), 0)
         for i in range(self.layer):
-            v_p = self.drug_intention[i](drug, protein)
-            v_d = self.protein_intention[i](protein, drug)
+            v_p = self.drug_intention[i](drug, protein, drug_valid, protein_valid)
+            v_d = self.protein_intention[i](protein, drug, protein_valid, drug_valid)
             drug = drug + v_d
             protein = protein + v_p
-            drug = self.norm(drug)
-            protein = self.norm(protein)
+            drug = self.norm(drug).masked_fill(~drug_valid.unsqueeze(-1), 0)
+            protein = self.norm(protein).masked_fill(~protein_valid.unsqueeze(-1), 0)
         return drug, protein
 
 
@@ -117,9 +142,12 @@ class WideDeepModel_Core(nn.Module):
         fused_drug_feat = self.drug_fusion_layer(b_cls, morgan_fp)
         wide_out = self.wide_net(torch.cat([fused_drug_feat, e_cls], dim=1))
 
-        d_feat, p_feat = self.drug_proj(b_seq), self.prot_proj(p_seq_emb)
-        d_enhanced, p_enhanced = self.bi_intention(d_feat, p_feat)
-        deep_out = torch.cat((d_enhanced.max(dim=1)[0], p_enhanced.max(dim=1)[0]), dim=1)
+        drug_valid = _sequence_mask(b_mask, b_seq, "drug sequence")
+        protein_valid = _sequence_mask(p_mask, p_seq_emb, "protein sequence")
+        d_feat = self.drug_proj(b_seq.masked_fill(~drug_valid.unsqueeze(-1), 0))
+        p_feat = self.prot_proj(p_seq_emb.masked_fill(~protein_valid.unsqueeze(-1), 0))
+        d_enhanced, p_enhanced = self.bi_intention(d_feat, p_feat, drug_valid, protein_valid)
+        deep_out = torch.cat((_masked_max(d_enhanced, drug_valid), _masked_max(p_enhanced, protein_valid)), dim=1)
 
         logits = self.classifier(torch.cat([wide_out, deep_out], dim=1)).squeeze(-1)
 
@@ -187,13 +215,17 @@ class FusionDeepDTAGen(nn.Module):
         b_cls, e_cls, morgan = data.b_cls, data.e_cls, data.morgan
         b_seq, b_mask, p_seq, p_mask = data.b_seq, data.b_mask, data.e_seq, data.e_mask
         targets, affinity_val = data.target_seq, getattr(data, 'affinity', None)
+        if targets.ndim != 2 or targets.size(1) < 2 or not targets[:, 1:].ne(self.pad_value).any(dim=1).all():
+            raise ValueError("Targets must contain a start token and at least one non-padding next token")
+        if not 0 <= word_dropout <= 1:
+            raise ValueError("word_dropout must lie in [0, 1]")
 
 
         logits, d_enhanced, raw_b_seq, raw_prot_cls = self.dti_model(b_cls, e_cls, morgan, b_seq, b_mask, p_seq, p_mask)
         dti_loss = F.binary_cross_entropy_with_logits(logits, data.y.float())
 
 
-        raw_b_proj = self.raw_drug_proj(raw_b_seq).permute(1, 0, 2) # [Seq, B, H]
+        raw_b_proj = self.raw_drug_proj(raw_b_seq.masked_fill(~b_mask.bool().unsqueeze(-1), 0)).permute(1, 0, 2) # [Seq, B, H]
 
 
         z_hidden = raw_b_proj
@@ -219,31 +251,34 @@ class FusionDeepDTAGen(nn.Module):
 
         decoder_inputs = targets
         if self.training and word_dropout > 0:
-            mask = (torch.rand(targets.shape, device=targets.device) < word_dropout) & (targets != self.pad_value)
+            mask = (torch.rand(targets.shape, device=targets.device) < word_dropout) & (targets != self.pad_value) & (targets != self.sos_value) & (targets != self.eos_value)
             decoder_inputs = torch.where(mask, torch.full(targets.shape, self.unk_value, device=targets.device), targets)
 
         x = self.pos_encoding(self.word_embed(decoder_inputs).permute(1, 0, 2))
         tgt_mask = torch.triu(torch.ones(targets.size(1), targets.size(1)), diagonal=1).bool().to(targets.device)
-        for layer in self.decoder: x = layer(x, zzz, x_mask=tgt_mask, mem_padding_mask=encoder_mask)
+        for layer in self.decoder: x = layer(x, zzz, x_mask=tgt_mask, x_padding_mask=(targets == self.pad_value), mem_padding_mask=encoder_mask)
 
-        lm_loss = F.cross_entropy(self.word_pred(self.decoder_norm(x).permute(1, 0, 2)).reshape(-1, self.vocab_size), targets.reshape(-1), ignore_index=self.pad_value)
+        prediction_scores = self.word_pred(self.decoder_norm(x).permute(1, 0, 2))
+        lm_loss = F.cross_entropy(prediction_scores[:, :-1].reshape(-1, self.vocab_size), targets[:, 1:].reshape(-1), ignore_index=self.pad_value)
 
 
-        z_log_var = -torch.abs(logvar)
-        kl_loss = -0.5 * torch.sum(1 + z_log_var - mu.pow(2) - z_log_var.exp()) / 64
+        z_log_var = -torch.abs(logvar.float())
+        kl_terms = -0.5 * (1 + z_log_var - mu.float().pow(2) - z_log_var.exp())
+        kl_terms = kl_terms.masked_fill(~b_mask.bool().T.unsqueeze(-1), 0)
+        kl_loss = kl_terms.sum(dim=(0, 2)).mean()
 
 
         return logits, None, dti_loss, lm_loss, kl_loss
 
     def generate(self, data, random_sample=False, affinity_override=None, temperature=1.0):
-        val_scalar = float(affinity_override) if affinity_override else 9.0
+        val_scalar = float(affinity_override) if affinity_override is not None else 9.0
         val = torch.full((data.b_seq.size(0),), val_scalar, device=data.b_seq.device)
 
         with torch.no_grad():
             _, d_enhanced, raw_b_seq, raw_prot_cls = self.dti_model(data.b_cls, data.e_cls, data.morgan, data.b_seq, data.b_mask, data.e_seq, data.e_mask)
 
 
-        raw_b_proj = self.raw_drug_proj(raw_b_seq).permute(1, 0, 2)
+        raw_b_proj = self.raw_drug_proj(raw_b_seq.masked_fill(~data.b_mask.bool().unsqueeze(-1), 0)).permute(1, 0, 2)
         z_hidden = raw_b_proj
         for layer in self.z_encoder:
             z_hidden = layer(z_hidden, encoder_padding_mask=(data.b_mask==0))
@@ -265,6 +300,8 @@ class FusionDeepDTAGen(nn.Module):
         return self._generate(zzz, encoder_mask, random_sample, temperature)
 
     def _generate(self, zzz, encoder_mask, random_sample=False, temperature=1.0):
+        if not math.isfinite(temperature) or temperature <= 0:
+            raise ValueError("temperature must be finite and positive")
         batch_size, device = zzz.shape[1], zzz.device
         token = torch.full((batch_size, self.max_len), self.pad_value, dtype=torch.long, device=device)
         token[:, 0] = self.sos_value
@@ -273,13 +310,14 @@ class FusionDeepDTAGen(nn.Module):
             curr = token[:, :t]
             x = self.pos_encoding(self.word_embed(curr).permute(1, 0, 2))
             mask = torch.triu(torch.ones(t, t), diagonal=1).bool().to(device)
-            for layer in self.decoder: x = layer(x, zzz, x_mask=mask, mem_padding_mask=encoder_mask)
+            for layer in self.decoder: x = layer(x, zzz, x_mask=mask, x_padding_mask=(curr == self.pad_value), mem_padding_mask=encoder_mask)
             logits = self.word_pred(self.decoder_norm(x)[-1])
             if random_sample:
                 if temperature != 1.0: logits = logits / temperature
                 k = torch.multinomial(torch.softmax(logits, 1), 1).squeeze(1)
             else:
                 k = torch.argmax(logits, -1)
+            k = torch.where(finished, torch.full_like(k, self.pad_value), k)
             token[:, t] = k
             finished |= (k == self.eos_value)
             if finished.all(): break
