@@ -11,6 +11,26 @@ This folder contains a preserved copy of the original HAGDTI BerMol + Morgan + E
 - Sequence masks are carried through self-attention, cross-sequence intention, and max pooling. The intention kernel uses a positive softplus-parameterized ridge value and a linear solve.
 - Feature cache names include the cleaned dataset digest, the trainer source fingerprint, encoder/code paths and SHA-256 file-content fingerprints, feature dimensions, and extraction schema. The fingerprint reads each file in the configured encoder directories before cache reuse.
 
+## Architecture diagrams
+
+These diagrams document the `WideDeepHMCNFModel` implementation in this folder. They show the default feature dimensions where applicable; the ESM widths can be changed with the training CLI options described below.
+
+### HMCN-F global and local prediction head
+
+![HMCN-F global and local prediction head](assets/architecture/01-hmcnf-global-local-prediction-head.png)
+
+### Wide-Deep BiIntention-HMCN-F model
+
+![Wide-Deep BiIntention-HMCN-F model](assets/architecture/02-wide-deep-bilintention-hmcnf-model.png)
+
+### Gated ligand fusion and wide branch
+
+![Gated ligand fusion and wide branch](assets/architecture/03-gated-ligand-fusion-wide-branch.png)
+
+### Bidirectional BiIntention interaction
+
+![Bidirectional BiIntention interaction](assets/architecture/04-bidirectional-bilintention-interaction.png)
+
 The model dimensions are explicit CLI parameters. Defaults match the model class defaults (`esm_dim=640`, `esm2_dim=2560`). For a serving configuration that uses a 2560-wide pooled ESM feature and a 320-wide sequence ESM feature, pass `--esm_dim 2560 --esm2_dim 320`. Use the same encoder checkpoints, dimensions, and preprocessing when training weights intended for a specific inference ensemble.
 
 ## Train
