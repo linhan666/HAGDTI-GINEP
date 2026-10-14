@@ -1,8 +1,8 @@
 # HAGDTI-GINEP
 
-独立整理的 **GIN-EP 完整模型架构**。来源为 `linhan666/GPCRDTI` 的 `abl_ax3_gin_ep` 实验：ESMC 蛋白分支、GPCR 先验、ChemBERTa/药效团配体分支、GINE + 键特征 + RW-PE 原子图分支、原子到 TM 的交叉注意力、flat fusion，以及 MLP、HMCN-F、HiAGM-TP、C-HMCNN 和 conditional-softmax 五种可选分类头。
+**GIN-EP 药物–靶点相互作用模型**包含ESMC 蛋白分支、GPCR 先验、ChemBERTa/药效团配体分支、GINE + 键特征 + RW-PE 原子图分支、原子到 TM 的交叉注意力、flat fusion，以及 MLP、HMCN-F、HiAGM-TP、C-HMCNN 和 conditional-softmax 五种可选分类头。
 
-本目录只提供该模型架构、必要特征函数和离线接口检查。完整实验调度、其他模型分支、数据、预训练权重和训练后检查点不在发布范围内。原项目源文件未修改。
+仓库包含模型实现、特征函数、接口测试和使用说明。训练数据、预训练权重及训练后检查点需自行提供。分子生成模型位于 [`model_gen_comparison`](model_gen_comparison/README.md)。
 
 ## 固定架构
 
@@ -61,7 +61,6 @@ HMCN-F 默认 `hierarchy=[1,2]`、`hidden_dim=384`、`beta=0.5`；HiAGM-TP 默�
 | `esmc_tokenizer.py` | 原项目 ESMC 分词器兼容层 |
 | `tests/test_architecture.py` | 模拟骨干的完整前向/反向与图边界检查 |
 | `ARCHITECTURE.md` | 数学路径、输入张量和接口说明 |
-| `PROVENANCE.json` | 原始提交、源码哈希、提取范围 |
 
 ## 使用
 
@@ -93,13 +92,10 @@ model = build_model(cfg).eval()
 
 默认 ESMC-300M 隐藏维度为 960；若使用 ESMC-600M，须同步设置 `esmc_model_size="600m"` 和 `protein_hidden=1152`。ChemBERTa 隐藏维度须与 `ligand_hidden=768` 对齐。
 
-## 验证与边界
+## 输入与运行约定
 
-- 2026-10-14：四项离线测试通过，覆盖全部五种分类头的前向、反向和概率归一化；完整三分类/辅助二分类前向、注意力形状、概率归一化及各通路梯度均通过检查。
-- 与原项目使用 GIN-EP 的五种头配置逐一对比：模拟骨干下 `state_dict` 键、初始化参数和所有前向输出张量均完全一致，严格检查点加载均通过。键数量分别为 MLP 106、HMCN-F 114、HiAGM-TP 107、C-HMCNN 106、conditional-softmax 106。该检查不涉及真实预训练权重，也未新增性能实验。
 - 原始数据行为保留：非法或空 SMILES 会生成占位图；缺失键属性或 RW-PE 会使用零值降级。正式推理前应校验输入，不能把占位图当作有效化学结构。
 - 训练模式的 BatchNorm 需要足够的节点样本；单原子单样本批次可能报错。推理应使用 `model.eval()`。
 - TM token mask 保留原始分词器口径；没有新增残基筛选或口袋结构推断。默认长度限制可能截断序列，GPCRdb 片段和 motif 特征需由调用者提供。
-- 结果表、论文中的性能主张和其他实验版本未纳入本架构发布。
 
 本仓库未自行增加开源许可证；使用、分发及预训练模型许可需依据原项目和相应模型条款。

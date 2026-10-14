@@ -1,6 +1,6 @@
 # Molecular generation models
 
-本目录包含两个分子生成模型及其训练入口：`model_gen` 和 `model_gen_deep`。来源为 [HAGDTIGen](https://github.com/linhan666/HAGDTIGen) 的提交 `3a9298603119ff245ab5be95727e3a0896fea1d4`。
+本目录包含两个分子生成模型及其训练入口：`model_gen` 和 `model_gen_deep`。模型实现来自 [HAGDTIGen](https://github.com/linhan666/HAGDTIGen)。
 
 ## model_gen
 
@@ -39,9 +39,3 @@ python train_gen_deep_nowide.py --data_path /path/data.csv --output_dir /path/ou
 依赖列表见 [`requirements.txt`](requirements.txt)，不包含完整环境锁定。BerMol Python 包及预训练文件、ESM 权重、训练数据和缓存需另行提供。
 
 训练表的 `Y` 为二分类标签。脚本接受 `SMILES`、`Protein`、`Y` 和可选的 `Affinity`，并支持 `Smiles`、`Sequence`、`Activity_Label`、`affinity` 列名映射。未提供 Affinity 时，脚本根据标签填入 9.0 或 4.0；这些值是构造条件，不是实测亲和力。
-
-## 来源与验证
-
-[`PROVENANCE.json`](PROVENANCE.json) 记录来源提交、原始源码哈希及当前文件哈希。代码清理仅涉及注释、文档字符串和空白；排除文档字符串后，执行 AST 与清理前一致。
-
-历史检查包括 CPU 实例化、合成 batch 前向及短生成接口检查；详细记录见 [`REVIEW.md`](REVIEW.md)。这些检查不代表真实训练、生成质量或生物学效力验证。
