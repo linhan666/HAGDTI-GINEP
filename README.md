@@ -4,27 +4,21 @@
 
 仓库包含模型实现、特征函数、接口测试和使用说明。训练数据、预训练权重及训练后检查点需自行提供。分子生成模型位于 [`model_gen_comparison`](model_gen_comparison/README.md)。
 
-## 固定架构
+## 模型示意图
 
-```mermaid
-flowchart LR
-    S[GPCR sequence / pocket / 7 TM] --> E[Shared ESMC]
-    E --> P[Protein global representation 256]
-    M[BW motif features 12] --> P
-    E --> T[7 TM token sequences 256]
-    L[SMILES] --> C[ChemBERTa + pharmacophore 16]
-    C --> W[Ligand global representation 256]
-    L --> G[Atom 34 / bond 12 / RW-PE 20]
-    G --> N[PE 20 to 8 / node 42 to 32 / 3 GINE layers]
-    N --> Q[Atom tokens 32 to 256]
-    Q --> A[4-head cross attention: atom queries / TM keys and values]
-    T --> A
-    P --> F[Concatenate 768 / fusion MLP 512 to 256]
-    W --> F
-    A --> F
-    F --> H[Selectable head: MLP / HMCN-F / HiAGM-TP / C-HMCNN / conditional-softmax]
-    F --> B[Auxiliary binary head 2: MLP only]
-```
+### 图 1：GIN-EP 整体架构
+
+![GIN-EP 整体架构](assets/ginep_overview.png)
+
+### 图 2：原子图与原子到 TM 的注意力
+
+![GIN-EP 原子图与原子到 TM 的注意力](assets/ginep_atom_tm_attention.png)
+
+### 图 3：可选分类头
+
+![GIN-EP 可选分类头](assets/ginep_classification_heads.png)
+
+## 模型配置
 
 固定 `graph_deep_type=gin_ep`、`graph_use_edge_attr=True`、`graph_use_rw_pe=True`、`protein_token_source=tm7`、`fusion_mode=flat`。分类头默认 `mlp`，可切换为下表中的其他头。蛋白“全序列”输入用于全局 CLS 表示；交叉注意力的蛋白 token 来源固定为七个跨膜片段。
 
